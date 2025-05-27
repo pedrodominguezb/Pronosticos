@@ -1,0 +1,65 @@
+# Instalar librerías necesarias
+!pip install prophet pandas openpyxl
+
+# Importar librerías
+from prophet import Prophet
+import pandas as pd
+from google.colab import files
+import matplotlib.pyplot as plt
+
+# 1. Cargar archivo Excel desde tu computadora
+uploaded = files.upload()
+file_name = next(iter(uploaded))
+
+# 2. Leer datos históricos (columnas: 'ds'=fecha, 'y'=volumen)
+df = pd.read_excel(file_name)
+print("Datos históricos cargados:")
+print(df.head())
+
+# 3. Definir eventos especiales (sin impactos negativos)
+festivos = pd.DataFrame({
+  'holiday': ['Hot Sale', 'Buen Fin', 'Navidad'],
+  'ds': pd.to_datetime(['2025-05-26', '2025-11-14', '2025-12-25']),
+  'lower_window': [0, 0, 0],  # Sin días previos de impacto
+  'upper_window': [1, 2, 5],  # Días posteriores con efecto
+  'prior_scale': [10, 10, 10]  # Fuerza del impacto (positivo)
+})
+
+# 4. Configurar modelo para evitar negativos
+model = Prophet(
+    growth='logistic',  # Restringe a valores positivos
+    seasonality_mode='additive',  # Estacionalidad aditiva
+    yearly_seasonality=True,
+    weekly_seasonality=True,
+    daily_seasonality=False,
+    changepoint_prior_scale=0.05,  # Tendencia más estable
+    holidays=festivos
+)
+
+# Definir capacidad máxima (ajusta según tu caso)
+df['cap'] = 2 * df['y'].max()  # Ej: 2x el máximo histórico
+
+# 5. Entrenar modelo
+model.fit(df)
+
+# 6. Crear fechas futuras (26-mayo a 30-junio-2025)
+future = model.make_future_dataframe(periods=36)
+future = future[future['ds'] >= '2025-05-26']
+future['cap'] = df['cap'].max()  # Aplicar capacidad máxima
+
+# 7. Generar pronóstico
+forecast = model.predict(future)
+
+# 8. Filtrar columnas clave para el reporte
+resultados = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper', 'trend']]
+resultados = resultados.round(2)  # Redondear decimales
+
+# 9. Exportar a Excel
+output_file = "pronostico_fedex_ajustado.xlsx"
+with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+    resultados.to_excel(writer, sheet_name='Pronóstico', index=False)
+    festivos.to_excel(writer, sheet_name='Festivos', index=False)
+
+# 10. Descargar archivo automáticamente
+files.download(output_file)
+print(f"¡Archivo '{output_file}' descargado con éxito!")
